@@ -72,6 +72,42 @@ void kiss_discard(char c, void * taskwoken) {
 	putchar(c);
 }
 
+static csp_iface_t* satctl_zmqhub_init(uint16_t addr, const char *host, const char *ifname, uint32_t flags, int sub_port, int pub_port)
+{
+    csp_iface_t *csp_if;
+
+    if (sub_port == 0) {
+        sub_port = CSP_ZMQPROXY_SUBSCRIBE_PORT;
+    }
+
+    if (pub_port == 0) {
+        pub_port = CSP_ZMQPROXY_PUBLISH_PORT;
+    }
+
+    char pub[100];
+    csp_zmqhub_make_endpoint(host, sub_port, pub, sizeof(pub));
+
+    char sub[100];
+    csp_zmqhub_make_endpoint(host, pub_port, sub, sizeof(sub));
+
+
+    uint16_t * rxfilter = NULL;
+    unsigned int rxfilter_count = 0;
+
+    int err = csp_zmqhub_init_w_name_endpoints_rxfilter(ifname,
+                             rxfilter, rxfilter_count,
+                             pub,
+                             sub,
+                             flags,
+                             &csp_if);
+    if (err != CSP_ERR_NONE) {
+        fprintf(stderr, "Could not initialize ZMQ device %s!\n", ifname);
+        return NULL;
+    }
+
+    return csp_if;
+}
+
 int main(int argc, char **argv)
 {
 	static struct slash *slash;
@@ -90,7 +126,7 @@ int main(int argc, char **argv)
 	int csp_version = 2;
 	char * rtable = NULL;
 	char * tun_conf_str = NULL;
-	char * csp_zmqhub_addr[10];
+	char * csp_zmqhub_addr[20];
 	int csp_zmqhub_idx = 0;
 
 	while ((c = getopt(argc, argv, "+hpr:b:c:u:n:v:R:t:z:")) != -1) {
@@ -245,10 +281,16 @@ int main(int argc, char **argv)
 	}
 
 	while (csp_zmqhub_idx > 0) {
-		char * zmq_str = csp_zmqhub_addr[--csp_zmqhub_idx];
-		printf("zmq str %s\n", zmq_str);
+		char *zmq_str = csp_zmqhub_addr[--csp_zmqhub_idx];
+		char delimiter[] = ":";
+
+		char *zmq_addr = strtok(zmq_str, delimiter);
+		char *sub_port = strtok(NULL, delimiter);
+		char *pub_port = strtok(NULL, delimiter);
+		printf("ZMQ host: %s sub port: %s pub port: %s \n", zmq_addr, sub_port, pub_port);
+
 		csp_iface_t * zmq_if;
-		csp_zmqhub_init(csp_get_address(), zmq_str, 0, &zmq_if);
+		zmq_if = satctl_zmqhub_init(csp_get_address(), zmq_addr, NULL, 0, atoi(sub_port), atoi(pub_port));
 
 		/* Use auto incrementing names */
 		char * zmq_name = malloc(20);
