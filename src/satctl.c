@@ -57,15 +57,15 @@ void usage(void)
 	printf("Copyright (c) 2014 Satlab ApS <satlab@satlab.com>\n");
 	printf("\n");
 	printf("Options:\n");
-	printf(" -c INTERFACE,\tUse INTERFACE as CAN interface\n");
-	printf(" -u INTERFACE,\tUse INTERFACE as UART interface\n");
-	printf(" -b BAUD,\tUART buad rate\n");
-	printf(" -n NODE\tUse NODE as own CSP address\n");
-	printf(" -r UDP_CONFIG\tUDP configuration string, encapsulate in brackets: \"<lport> <peer ip> <rport>\" (supports multiple) \n");
-	printf(" -z ZMQ_IP\tIP of zmqproxy node (supports multiple)\n");
-	printf(" -p\t\tSetup prometheus node\n");
-	printf(" -R RTABLE\tOverride rtable with this string\n");
-	printf(" -h\t\tPrint this help and exit\n");
+	printf(" -c INTERFACE,\t\t\tUse INTERFACE as CAN interface\n");
+	printf(" -u INTERFACE,\t\t\tUse INTERFACE as UART interface\n");
+	printf(" -b BAUD,\t\t\tUART buad rate\n");
+	printf(" -n NODE\t\t\tUse NODE as own CSP address\n");
+	printf(" -r UDP_CONFIG\t\t\tUDP configuration string, encapsulate in brackets: \"<lport> <peer ip> <rport>\" (supports multiple) \n");
+	printf(" -z ZMQ_IP:SUB_PORT:PUB_PORT\tIP of zmqproxy node (pass only ZMQ_IP for default ports s:6000/p:7000)(supports multiple)\n");
+	printf(" -p\t\t\t\tSetup prometheus node\n");
+	printf(" -R RTABLE\t\t\tOverride rtable with this string\n");
+	printf(" -h\t\t\t\tPrint this help and exit\n");
 }
 
 void kiss_discard(char c, void * taskwoken) {
@@ -75,14 +75,6 @@ void kiss_discard(char c, void * taskwoken) {
 static csp_iface_t* satctl_zmqhub_init(uint16_t addr, const char *host, const char *ifname, uint32_t flags, int sub_port, int pub_port)
 {
     csp_iface_t *csp_if;
-
-    if (sub_port == 0) {
-        sub_port = CSP_ZMQPROXY_SUBSCRIBE_PORT;
-    }
-
-    if (pub_port == 0) {
-        pub_port = CSP_ZMQPROXY_PUBLISH_PORT;
-    }
 
     char pub[100];
     csp_zmqhub_make_endpoint(host, sub_port, pub, sizeof(pub));
@@ -283,14 +275,25 @@ int main(int argc, char **argv)
 	while (csp_zmqhub_idx > 0) {
 		char *zmq_str = csp_zmqhub_addr[--csp_zmqhub_idx];
 		char delimiter[] = ":";
+		int sub_port = CSP_ZMQPROXY_SUBSCRIBE_PORT;
+		int pub_port = CSP_ZMQPROXY_PUBLISH_PORT;
 
+		/* This is how strtok works, each step after first strips the next port number */
 		char *zmq_addr = strtok(zmq_str, delimiter);
-		char *sub_port = strtok(NULL, delimiter);
-		char *pub_port = strtok(NULL, delimiter);
-		printf("ZMQ host: %s sub port: %s pub port: %s \n", zmq_addr, sub_port, pub_port);
+
+		char *sub_port_arg = strtok(NULL, delimiter);
+		if (sub_port_arg != NULL) {
+			sub_port = atoi(sub_port_arg);
+		}
+
+		char *pub_port_arg = strtok(NULL, delimiter);
+		if (pub_port_arg != NULL) {
+			pub_port = atoi(pub_port_arg);
+		}
+		printf("ZMQ host: %s sub port: %d pub port: %d \n", zmq_addr, sub_port, pub_port);
 
 		csp_iface_t * zmq_if;
-		zmq_if = satctl_zmqhub_init(csp_get_address(), zmq_addr, NULL, 0, atoi(sub_port), atoi(pub_port));
+		zmq_if = satctl_zmqhub_init(csp_get_address(), zmq_addr, NULL, 0, sub_port, pub_port);
 
 		/* Use auto incrementing names */
 		char * zmq_name = malloc(20);
