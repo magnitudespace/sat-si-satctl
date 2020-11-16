@@ -43,6 +43,9 @@
 #define SATCTL_LINE_SIZE		    128
 #define SATCTL_HISTORY_SIZE		    2048
 
+#define UDP_DEFAULT_LPORT 9600
+#define UDP_DEFAULT_RPORT 9600
+
 VMEM_DEFINE_STATIC_RAM(test, "test", 100000);
 VMEM_DEFINE_FILE(col, "col", "colcnf.vmem", 120);
 VMEM_DEFINE_FILE(csp, "csp", "cspcnf.vmem", 120);
@@ -57,19 +60,47 @@ void usage(void)
 	printf("Copyright (c) 2014 Satlab ApS <satlab@satlab.com>\n");
 	printf("\n");
 	printf("Options:\n");
-	printf(" -c INTERFACE,\tUse INTERFACE as CAN interface\n");
-	printf(" -u INTERFACE,\tUse INTERFACE as UART interface\n");
-	printf(" -b BAUD,\tUART buad rate\n");
-	printf(" -n NODE\tUse NODE as own CSP address\n");
-	printf(" -r UDP_CONFIG\tUDP configuration string, encapsulate in brackets: \"<lport> <peer ip> <rport>\" (supports multiple) \n");
-	printf(" -z ZMQ_IP\tIP of zmqproxy node (supports multiple)\n");
-	printf(" -p\t\tSetup prometheus node\n");
-	printf(" -R RTABLE\tOverride rtable with this string\n");
-	printf(" -h\t\tPrint this help and exit\n");
+	printf(" -c INTERFACE,\t\t\tUse INTERFACE as CAN interface\n");
+	printf(" -u INTERFACE,\t\t\tUse INTERFACE as UART interface\n");
+	printf(" -b BAUD,\t\t\tUART buad rate\n");
+	printf(" -n NODE\t\t\tUse NODE as own CSP address\n");
+	printf(" -r UDP_CONFIG:LPORT:RPORT\tUDP configuration string (supports multiple) \n");
+	printf(" -z ZMQ_IP:SUB_PORT:PUB_PORT\tIP of zmqproxy node (pass only ZMQ_IP for default ports s:6000/p:7000)(supports multiple)\n");
+	printf(" -p\t\t\t\tSetup prometheus node\n");
+	printf(" -R RTABLE\t\t\tOverride rtable with this string\n");
+	printf(" -h\t\t\t\tPrint this help and exit\n");
 }
 
 void kiss_discard(char c, void * taskwoken) {
 	putchar(c);
+}
+
+static csp_iface_t* satctl_zmqhub_init(uint16_t addr, const char *host, const char *ifname, uint32_t flags, int sub_port, int pub_port)
+{
+    csp_iface_t *csp_if;
+
+    char pub[100];
+    csp_zmqhub_make_endpoint(host, sub_port, pub, sizeof(pub));
+
+    char sub[100];
+    csp_zmqhub_make_endpoint(host, pub_port, sub, sizeof(sub));
+
+
+    uint16_t * rxfilter = NULL;
+    unsigned int rxfilter_count = 0;
+
+    int err = csp_zmqhub_init_w_name_endpoints_rxfilter(ifname,
+                             rxfilter, rxfilter_count,
+                             pub,
+                             sub,
+                             flags,
+                             &csp_if);
+    if (err != CSP_ERR_NONE) {
+        fprintf(stderr, "Could not initialize ZMQ device %s!\n", ifname);
+        return NULL;
+    }
+
+    return csp_if;
 }
 
 int main(int argc, char **argv)
@@ -90,7 +121,7 @@ int main(int argc, char **argv)
 	int csp_version = 2;
 	char * rtable = NULL;
 	char * tun_conf_str = NULL;
-	char * csp_zmqhub_addr[10];
+	char * csp_zmqhub_addr[128];
 	int csp_zmqhub_idx = 0;
 
 	while ((c = getopt(argc, argv, "+hpr:b:c:u:n:v:R:t:z:")) != -1) {
@@ -198,15 +229,22 @@ int main(int argc, char **argv)
 		char * udp_str = udp_peer_str[--udp_peer_idx];
 		printf("udp str %s\n", udp_str);
 
-		int lport = 9600;
-		int rport = 9600;
-		char udp_peer_ip[20];
+		char delimiter[] = ":";
+		int lport = UDP_DEFAULT_LPORT;
+		int rport = UDP_DEFAULT_RPORT;
 
-		if (sscanf(udp_str, "%d %19s %d", &lport, udp_peer_ip, &rport) != 3) {
-			printf("Invalid UDP configuration string: %s\n", udp_str);
-			printf("Should math the pattern \"<lport> <peer ip> <rport>\" exactly\n");
-			return -1;
+		char *udp_peer_ip = strtok(udp_str, delimiter);
+
+		char *lport_arg = strtok(NULL, delimiter);
+		if (lport_arg != NULL) {
+			lport = atoi(lport_arg);
 		}
+
+		char *rport_arg = strtok(NULL, delimiter);
+		if (rport_arg != NULL) {
+			rport = atoi(rport_arg);
+		}
+		printf("UDP Peer IP: %s lport: %d rport: %d \n", udp_peer_ip, lport, rport);
 
 		csp_iface_t * udp_client_if = malloc(sizeof(csp_iface_t));
 		csp_if_udp_conf_t * udp_conf = malloc(sizeof(csp_if_udp_conf_t));
@@ -245,10 +283,28 @@ int main(int argc, char **argv)
 	}
 
 	while (csp_zmqhub_idx > 0) {
-		char * zmq_str = csp_zmqhub_addr[--csp_zmqhub_idx];
-		printf("zmq str %s\n", zmq_str);
+		char *zmq_str = csp_zmqhub_addr[--csp_zmqhub_idx];
+		char delimiter[] = ":";
+		int sub_port = CSP_ZMQPROXY_SUBSCRIBE_PORT;
+		int pub_port = CSP_ZMQPROXY_PUBLISH_PORT;
+
+		/* The first invocation of strtok extracts the hostname. The two following invocations extract the port numbers.
+		   NULL is passed to strtok to specify that we want to continue with the initial string that was passed. */
+		char *zmq_addr = strtok(zmq_str, delimiter);
+
+		char *sub_port_arg = strtok(NULL, delimiter);
+		if (sub_port_arg != NULL) {
+			sub_port = atoi(sub_port_arg);
+		}
+
+		char *pub_port_arg = strtok(NULL, delimiter);
+		if (pub_port_arg != NULL) {
+			pub_port = atoi(pub_port_arg);
+		}
+		printf("ZMQ host: %s sub port: %d pub port: %d \n", zmq_addr, sub_port, pub_port);
+
 		csp_iface_t * zmq_if;
-		csp_zmqhub_init(csp_get_address(), zmq_str, 0, &zmq_if);
+		zmq_if = satctl_zmqhub_init(csp_get_address(), zmq_addr, NULL, 0, sub_port, pub_port);
 
 		/* Use auto incrementing names */
 		char * zmq_name = malloc(20);
