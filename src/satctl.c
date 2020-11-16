@@ -64,7 +64,7 @@ void usage(void)
 	printf(" -u INTERFACE,\t\t\tUse INTERFACE as UART interface\n");
 	printf(" -b BAUD,\t\t\tUART buad rate\n");
 	printf(" -n NODE\t\t\tUse NODE as own CSP address\n");
-	printf(" -r UDP_CONFIG\t\t\tUDP configuration string, encapsulate in brackets: \"<lport> <peer ip> <rport>\" (supports multiple) \n");
+	printf(" -r UDP_CONFIG:LPORT:RPORT\tUDP configuration string (supports multiple) \n");
 	printf(" -z ZMQ_IP:SUB_PORT:PUB_PORT\tIP of zmqproxy node (pass only ZMQ_IP for default ports s:6000/p:7000)(supports multiple)\n");
 	printf(" -p\t\t\t\tSetup prometheus node\n");
 	printf(" -R RTABLE\t\t\tOverride rtable with this string\n");
