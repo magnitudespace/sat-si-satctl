@@ -43,6 +43,9 @@
 #define SATCTL_LINE_SIZE		    128
 #define SATCTL_HISTORY_SIZE		    2048
 
+#define UDP_DEFAULT_LPORT 9600
+#define UDP_DEFAULT_RPORT 9600
+
 VMEM_DEFINE_STATIC_RAM(test, "test", 100000);
 VMEM_DEFINE_FILE(col, "col", "colcnf.vmem", 120);
 VMEM_DEFINE_FILE(csp, "csp", "cspcnf.vmem", 120);
@@ -118,7 +121,7 @@ int main(int argc, char **argv)
 	int csp_version = 2;
 	char * rtable = NULL;
 	char * tun_conf_str = NULL;
-	char * csp_zmqhub_addr[20];
+	char * csp_zmqhub_addr[128];
 	int csp_zmqhub_idx = 0;
 
 	while ((c = getopt(argc, argv, "+hpr:b:c:u:n:v:R:t:z:")) != -1) {
@@ -226,15 +229,22 @@ int main(int argc, char **argv)
 		char * udp_str = udp_peer_str[--udp_peer_idx];
 		printf("udp str %s\n", udp_str);
 
-		int lport = 9600;
-		int rport = 9600;
-		char udp_peer_ip[20];
+		char delimiter[] = ":";
+		int lport = UDP_DEFAULT_LPORT;
+		int rport = UDP_DEFAULT_RPORT;
 
-		if (sscanf(udp_str, "%d %19s %d", &lport, udp_peer_ip, &rport) != 3) {
-			printf("Invalid UDP configuration string: %s\n", udp_str);
-			printf("Should math the pattern \"<lport> <peer ip> <rport>\" exactly\n");
-			return -1;
+		char *udp_peer_ip = strtok(udp_str, delimiter);
+
+		char *lport_arg = strtok(NULL, delimiter);
+		if (lport_arg != NULL) {
+			lport = atoi(lport_arg);
 		}
+
+		char *rport_arg = strtok(NULL, delimiter);
+		if (rport_arg != NULL) {
+			rport = atoi(rport_arg);
+		}
+		printf("UDP Peer IP: %s lport: %d rport: %d \n", udp_peer_ip, lport, rport);
 
 		csp_iface_t * udp_client_if = malloc(sizeof(csp_iface_t));
 		csp_if_udp_conf_t * udp_conf = malloc(sizeof(csp_if_udp_conf_t));
@@ -278,7 +288,8 @@ int main(int argc, char **argv)
 		int sub_port = CSP_ZMQPROXY_SUBSCRIBE_PORT;
 		int pub_port = CSP_ZMQPROXY_PUBLISH_PORT;
 
-		/* This is how strtok works, each step after first strips the next port number */
+		/* The first invocation of strtok extracts the hostname. The two following invocations extract the port numbers.
+		   NULL is passed to strtok to specify that we want to continue with the initial string that was passed. */
 		char *zmq_addr = strtok(zmq_str, delimiter);
 
 		char *sub_port_arg = strtok(NULL, delimiter);
